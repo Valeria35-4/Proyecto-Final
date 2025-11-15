@@ -252,3 +252,156 @@ p5 <- ggplot(comparacion_modelos, aes(x = Modelo, y = R2_Ajustado, fill = Modelo
 
 # Guardar gráfico de comparación
 ggsave("resultados/comparacion_r2_ajustado.png", p5, width = 10, height = 6, dpi = 300)
+
+# 8. CONCLUSIONES AUTOMÁTICAS =============================================
+
+cat("\nCONCLUSIONES PRINCIPALES:\n\n")
+
+# Efecto del precio
+cat("1. EFECTO DEL PRECIO:\n")
+precio_efecto <- coef(modelo1)[2]
+if (precio_efecto < 0) {
+  cat("- El precio tiene un efecto negativo en los check-ins: por cada unidad que aumenta el precio,",
+      "los check-ins disminuyen en", abs(round(precio_efecto, 2)), "unidades.\n")
+} else {
+  cat("- El precio tiene un efecto positivo en los check-ins: por cada unidad que aumenta el precio,",
+      "los check-ins aumentan en", round(precio_efecto, 2), "unidades.\n")
+}
+
+# Eventos más significativos
+eventos_coef <- coef(modelo2)[c("SuperBowl", "Valentines", "NY", "Easter", "LaborDay", "Xmas")]
+evento_max <- names(which.max(abs(eventos_coef)))
+cat("\n2. IMPACTO DE EVENTOS:\n")
+cat("- El evento con mayor impacto es:", evento_max,
+    "con un efecto de", round(eventos_coef[evento_max], 2), "check-ins\n")
+
+# Tipo de cliente
+tipos_cliente <- c("Casino", "Group", "SE")
+tipos_coef <- coef(modelo2)[tipos_cliente]
+tipo_max <- names(which.max(abs(tipos_coef)))
+cat("\n3. TIPO DE CLIENTE:\n")
+cat("- El segmento de cliente con mayor impacto es:", tipo_max,
+    "con un efecto de", round(tipos_coef[tipo_max], 2), "check-ins\n")
+
+# Mejor modelo
+mejores_r2 <- comparacion_modelos$R2_Ajustado
+mejor_modelo <- comparacion_modelos$Modelo[which.max(mejores_r2)]
+cat("\n4. MEJOR MODELO:\n")
+cat("- El", mejor_modelo, "es el que mejor explica la variación en los check-ins,",
+    "con un R² ajustado de", round(max(mejores_r2), 3), "\n")
+
+# Guardar todas las conclusiones en un archivo de texto
+sink("resultados/conclusiones.txt")
+cat("CONCLUSIONES PRINCIPALES:\n\n")
+cat("1. EFECTO DEL PRECIO:\n")
+if (precio_efecto < 0) {
+  cat("- El precio tiene un efecto negativo en los check-ins: por cada unidad que aumenta el precio,",
+      "los check-ins disminuyen en", abs(round(precio_efecto, 2)), "unidades.\n\n")
+} else {
+  cat("- El precio tiene un efecto positivo en los check-ins: por cada unidad que aumenta el precio,",
+      "los check-ins aumentan en", round(precio_efecto, 2), "unidades.\n\n")
+}
+cat("2. IMPACTO DE EVENTOS:\n")
+cat("- El evento con mayor impacto es:", evento_max,
+    "con un efecto de", round(eventos_coef[evento_max], 2), "check-ins\n\n")
+cat("3. TIPO DE CLIENTE:\n")
+cat("- El segmento de cliente con mayor impacto es:", tipo_max,
+    "con un efecto de", round(tipos_coef[tipo_max], 2), "check-ins\n\n")
+cat("4. MEJOR MODELO:\n")
+cat("- El", mejor_modelo, "es el que mejor explica la variación en los check-ins,",
+    "con un R² ajustado de", round(max(mejores_r2), 3), "\n")
+sink()
+
+# =============================================================================
+# AÑADIR MATRIZ DE CONFUSIÓN AL MODELO 1
+# =============================================================================
+
+# Crear variable binaria de alta demanda según promedio real
+promedio_checkins <- mean(caesars_data$checkins, na.rm = TRUE)
+caesars_data$Alta_Demanda <- ifelse(caesars_data$checkins > promedio_checkins, 1, 0)
+
+# Predicciones del modelo 1
+pred_modelo1 <- predict(modelo1, newdata = caesars_data)
+pred_clase_m1 <- ifelse(pred_modelo1 > promedio_checkins, 1, 0)
+
+# Matriz de confusión del Modelo 1
+library(caret)
+matriz_conf_m1 <- confusionMatrix(
+  as.factor(pred_clase_m1),
+  as.factor(caesars_data$Alta_Demanda)
+)
+
+print("MATRIZ DE CONFUSIÓN - MODELO 1")
+print(matriz_conf_m1)
+
+# Guardar matriz
+capture.output(matriz_conf_m1, file = "resultados/modelo1_matriz_confusion.txt")
+
+
+
+# =============================================================================
+# AÑADIR MATRIZ DE CONFUSIÓN AL MODELO 2 (TU MODELO MÚLTIPLE ORIGINAL)
+# =============================================================================
+
+pred_modelo2 <- predict(modelo2, newdata = caesars_data)
+pred_clase_m2 <- ifelse(pred_modelo2 > promedio_checkins, 1, 0)
+
+matriz_conf_m2 <- confusionMatrix(
+  as.factor(pred_clase_m2),
+  as.factor(caesars_data$Alta_Demanda)
+)
+
+print("MATRIZ DE CONFUSIÓN - MODELO 2")
+print(matriz_conf_m2)
+
+capture.output(matriz_conf_m2, file = "resultados/modelo2_matriz_confusion.txt")
+
+
+
+# =============================================================================
+# MODELO 3: MODELO NO LINEAL (MEJORADO) – VARIABLES AL CUADRADO
+# =============================================================================
+
+# Crear potencias cuadradas
+caesars_data <- caesars_data %>%
+  mutate(
+    FIT_ADR2 = (`FIT ADR`)^2,
+    Casino2  = Casino^2,
+    Group2   = Group^2,
+    SE2      = SE^2
+  )
+
+# Modelo 3 con no linealidades
+modelo3_nl <- lm(checkins ~ 
+                   `FIT ADR` + FIT_ADR2 +
+                   Casino + Casino2 +
+                   Group + Group2 +
+                   SE + SE2 +
+                   SuperBowl + Valentines + NY + Easter + LaborDay + Xmas +
+                   DiaSemana,
+                 data = caesars_data)
+
+summary(modelo3_nl)
+
+# Guardar resumen
+capture.output(summary(modelo3_nl), file = "resultados/modelo3_no_lineal_resultados.txt")
+
+
+
+# =============================================================================
+# MATRIZ DE CONFUSIÓN DEL MODELO 3 NO LINEAL
+# =============================================================================
+
+pred_modelo3 <- predict(modelo3_nl, newdata = caesars_data)
+pred_clase_m3 <- ifelse(pred_modelo3 > promedio_checkins, 1, 0)
+
+matriz_conf_m3 <- confusionMatrix(
+  as.factor(pred_clase_m3),
+  as.factor(caesars_data$Alta_Demanda)
+)
+
+print("MATRIZ DE CONFUSIÓN - MODELO 3 NO LINEAL")
+print(matriz_conf_m3)
+
+capture.output(matriz_conf_m3, file = "resultados/modelo3_no_lineal_matriz_confusion.txt")
+
